@@ -240,7 +240,7 @@ def run_syncnet(videofile, data_dir):
     global syncnet_inst
     if syncnet_inst is None:
         syncnet_inst = SyncNetInstance()
-        syncnet_inst.loadParameters("/tmp/pretrained/syncnet_v2.model")
+        syncnet_inst.loadParameters("ckpt/syncnet_v2.model")
     opt = attrdict.AttrDict({
         'data_dir': data_dir, 'videofile': videofile,
         'reference': 'ref', 'facedet_scale': 0.25, 'crop_scale': 0.40,
@@ -346,6 +346,3 @@ def run_syncnet(videofile, data_dir):
     offset, conf, dist = syncnet_inst.evaluate(opt, videofile=flist[0])
     subprocess.check_call(f'rm -rf {data_dir}', shell=True)
     return offset, conf, dist
-
-if __name__ == "__main__":
-    print(run_syncnet('/root/SadTalker/result_HDTF/RD_Radio10_000.mp4', '/tmp/syncnet'))

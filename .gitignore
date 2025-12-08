@@ -16,7 +16,6 @@ __pycache__/
 *.py[cod]
 *$py.class
 timing_logs/
-*repeat1000.wav
 pretrained/
 output/
 ckpt/

@@ -40,7 +40,7 @@ from .wan_2_2.utils.fm_solvers import (
     retrieve_timesteps,
 )
 from .wan_2_2.utils.fm_solvers_unipc import FlowUniPCMultistepScheduler
-from ...utils.load_weight_utils import load_state_dict 
+from ...utils.load_weight_utils import load_state_dict
 from liveavatar.utils.router.utils import process_masks_to_routing_logits
 
 
@@ -71,7 +71,7 @@ class WanS2V:
         convert_model_dtype=False,
         is_training=False,
         single_gpu=False,
-        offload_kv_cache=False,
+        offload_kv_cache=False
     ):
         r"""
         Initializes the image-to-video generation model components.
@@ -111,7 +111,6 @@ class WanS2V:
         self.checkpoint_dir = checkpoint_dir
         self.drop_part_motion_frames = drop_part_motion_frames
         self.single_gpu = single_gpu
-        self.offload_kv_cache = offload_kv_cache
         if t5_fsdp or dit_fsdp or use_sp:
             self.init_on_cpu = False
 
@@ -192,10 +191,10 @@ class WanS2V:
         self.drop_first_motion = config.drop_first_motion
         self.fps = config.sample_fps
         self.audio_sample_m = 0
+        self.tgt_gpu_id = 0
     
     def add_lora_to_model(self, model, lora_rank=4, lora_alpha=4, lora_target_modules="q,k,v,o,ffn.0,ffn.2", init_lora_weights="kaiming", pretrained_lora_path=None, state_dict_converter=None, load_only=False, load_lora_weight_only=False):
         if not load_only:
-            # Add LoRA to UNet
             self.lora_alpha = lora_alpha
             if init_lora_weights == "kaiming":
                 init_lora_weights = True
@@ -206,41 +205,16 @@ class WanS2V:
                 init_lora_weights=init_lora_weights,
                 target_modules=lora_target_modules.split(","),
             )
-            
-            # from peft import get_peft_model
-            # import pdb; pdb.set_trace()
-            # peft_model = get_peft_model(model, lora_config)
-            # LORA_WEIGHTS_PATH = pretrained_lora_path
-            # lora_state_dict = torch.load(LORA_WEIGHTS_PATH)
-            # lora_state_dict = {f"base_model.model.{k}": v for k, v in lora_state_dict.items()}
-            # load_info = peft_model.load_state_dict(lora_state_dict, strict=False)
-            # model = peft_model.merge_and_unload()
-            # model.save_pretrained("Wan2.2-S2V-14B/merged/Wan2.2-S2V-14B/diffusion_pytorch_model.safetensors")
-            # import pdb; pdb.set_trace()
-
-
-
             model = inject_adapter_in_model(lora_config, model)
                 
-        # Lora pretrained lora weights
         if pretrained_lora_path is not None:
-            # move to /tmp
             ori_pretrained_lora_path = pretrained_lora_path
-            # if not pretrained_lora_path.startswith('/tmp'):
-            #     if int(os.getenv("LOCAL_RANK", 0)) == 0:
-            #         os.makedirs(f'/tmp/Wan2.2-S2V-14B/ckpt', exist_ok=True)
-            #         subprocess.run([f'rsync -avh --progress {pretrained_lora_path} /tmp/Wan2.2-S2V-14B/ckpt'], shell=True, stdin=subprocess.PIPE)
-            #     if dist.is_initialized():
-            #         torch.distributed.barrier()
-            #     pretrained_lora_path = f'/tmp/Wan2.2-S2V-14B/ckpt/{os.path.basename(pretrained_lora_path)}'
-        
             state_dict = load_state_dict(pretrained_lora_path)
             if state_dict_converter is not None:
                 state_dict = state_dict_converter(state_dict)
             if load_lora_weight_only:
                 new_state_dict = {}
                 for key in state_dict.keys():
-                    # if 'lora' in key and 'audio' not in key:
                     if 'lora' in key:
                         new_state_dict[key] = state_dict[key]
                 state_dict = new_state_dict
@@ -617,32 +591,23 @@ class WanS2V:
             HEIGHT, WIDTH, target_area=max_area)
         return (HEIGHT, WIDTH)
 
-    def _initialize_kv_cache(self, batch_size, dtype, device, gpu_id, kv_cache_size=13500):
+    def _initialize_kv_cache(self, batch_size, dtype, device, kv_cache_size=13500):
         """
         Initialize a Per-GPU KV cache for the Wan model.
         gpu_id : "1","2","3","4"
         """
-        device =("cpu" if self.offload_kv_cache else f"cuda:{0}")  if self.single_gpu else device
         kv_cache1 = []
 
-        for layer_idx in range(self.noise_model.num_layers):
-            layer_cache = {
+        for _ in range(self.noise_model.num_layers):
+            kv_cache1.append({
                 "k": torch.zeros([batch_size, kv_cache_size, 40, 128], dtype=dtype, device=device),
                 "v": torch.zeros([batch_size, kv_cache_size, 40, 128], dtype=dtype, device=device),
-            }
-            
-            if not self.offload_kv_cache and hasattr(self, 'shared_cond_cache') and self.shared_cond_cache is not None:
-                layer_cache["cond_k"] = self.shared_cond_cache[layer_idx]["cond_k"]
-                layer_cache["cond_v"] = self.shared_cond_cache[layer_idx]["cond_v"]
-                layer_cache["cond_end"] = self.shared_cond_cache[layer_idx]["cond_end"]
-            else:
-                layer_cache["cond_k"] = torch.zeros([batch_size, 2800, 40, 128], dtype=dtype, device=device)
-                layer_cache["cond_v"] = torch.zeros([batch_size, 2800, 40, 128], dtype=dtype, device=device)
-                layer_cache["cond_end"] = torch.tensor([0], dtype=torch.long, device=device)
-            
-            kv_cache1.append(layer_cache)
+                "cond_k": torch.zeros([batch_size, 3000, 40, 128], dtype=dtype, device=device), #hard-coded for 720*400 resolution
+                "cond_v": torch.zeros([batch_size, 3000, 40, 128], dtype=dtype, device=device), #hard-coded for 720*400 resolution
+                "cond_end": torch.tensor([0], dtype=torch.long, device=device) #dynamically updated 2640
+            })
 
-        self.kv_cache1[str(gpu_id)] = kv_cache1  # always store the clean cache
+        self.kv_cache1 = kv_cache1  # always store the clean cache
     
     def _move_kv_cache_to_working_gpu(self,moved_id, gpu_id=0):
         """
@@ -652,15 +617,14 @@ class WanS2V:
         if gpu_id == 0: #move to working device
             tgt_device =f"cuda:{gpu_id}"
         else: #offload
-            tgt_device = ("cpu" if self.offload_kv_cache else f"cuda:{0}") if self.single_gpu else f"cuda:{gpu_id}"
+            tgt_device = "cpu" if self.single_gpu else f"cuda:{gpu_id}"
             
         kv_cache1 = self.kv_cache1[str(moved_id)]
         for layer in kv_cache1:
             layer["k"] = layer["k"].to(tgt_device)
             layer["v"] = layer["v"].to(tgt_device)
-            if self.offload_kv_cache or not hasattr(self, 'shared_cond_cache') or self.shared_cond_cache is None:
-                layer["cond_k"] = layer["cond_k"].to(tgt_device)
-                layer["cond_v"] = layer["cond_v"].to(tgt_device)
+            layer["cond_k"] = layer["cond_k"].to(tgt_device)
+            layer["cond_v"] = layer["cond_v"].to(tgt_device)
         self.kv_cache1[str(moved_id)] = kv_cache1
 
     def _initialize_crossattn_cache(self, batch_size, dtype, device):
@@ -677,6 +641,20 @@ class WanS2V:
             })
 
         self.crossattn_cache = crossattn_cache  # always store the clean cache
+    
+    def _initialize_comm_group(self, num_gpus_dit=4, enable_vae_parallel=False):
+        local_gpu_id = torch.distributed.get_rank()
+        tgt_gpu_id = local_gpu_id + 1
+        src_gpu_id = local_gpu_id - 1
+        if local_gpu_id == num_gpus_dit - 1 + int(enable_vae_parallel):
+            self.tgt_gpu = None
+        else:
+            self.tgt_gpu = tgt_gpu_id
+
+        if local_gpu_id == 0:
+            self.src_gpu = None
+        else:
+            self.src_gpu = src_gpu_id
 
     def generate(
         self,
@@ -703,7 +681,7 @@ class WanS2V:
         use_dataset=False,
         dataset_sample_idx=0,
         drop_motion_noisy=False,
-        num_gpus_dit=1,
+        num_gpus_dit=4,
         max_repeat=1000000,
         enable_vae_parallel=False,
         mask=None,
@@ -756,7 +734,7 @@ class WanS2V:
                 - W: Frame width from max_area)
         """
         # ------------------------------------Step 1: prepare conditional inputs--------------------------------------
-
+        
         size = self.get_gen_size(
             size=None,
             max_area=max_area,
@@ -781,7 +759,6 @@ class WanS2V:
         self.audio_encoder.model.to(device=self.device, dtype=self.param_dtype)
         self.audio_encoder.model.requires_grad_(False)
         self.audio_encoder.model.eval()
-        self.vae.model.to(self.device)
         
         if '+' in audio_path:
             audio_paths = audio_path.split('+')
@@ -886,13 +863,7 @@ class WanS2V:
             m=(mask[0][0].detach().to(torch.float16).cpu().numpy()>0.5).astype(np.uint8)*255; Image.fromarray(m.squeeze()).save("tmp/mask/mask.png")
         else:
             audio_emb, nr = self.encode_audio(audio_path, infer_frames=infer_frames)
-            # print(f"nr: {nr}")
-            # print(f"audio_emb num clip: {audio_emb.shape[-1]//infer_frames}")
-            # assert audio_emb.shape[-1]//infer_frames == nr
-            # num_repeat_clip = 3334 // nr + 1 #10000 seconds
-            # print(f"num_repeat_clip: {num_repeat_clip}")
-            # nr = nr * num_repeat_clip
-            # audio_emb = torch.cat([audio_emb]*num_repeat_clip, dim=-1)
+
         
         self.audio_encoder.model.to("cpu")
         if num_repeat is None or num_repeat > nr:
@@ -940,6 +911,9 @@ class WanS2V:
                 shift=3)
         else:
             raise NotImplementedError("Unsupported solver.")
+        self._initialize_comm_group(num_gpus_dit=num_gpus_dit, enable_vae_parallel=enable_vae_parallel)
+        in_dit_device = dist.get_rank() < num_gpus_dit
+        dist.barrier() # wait all ranks to finish initialization
 
 
         #--------------------------------------Step 2: generate--------------------------------------
@@ -948,117 +922,96 @@ class WanS2V:
                 torch.no_grad(),
         ):
             out = []
-            clip_outputs = []
             self.kv_cache1 = None
-            self.shared_cond_cache = None  
             active_nr = min(max_repeat, num_repeat)
             for r in range(active_nr):
             #-------------------------------------------rollout loop------------------------------------------------------
-                #----------------------------------------------Step 2.1: clip-level init------------------------------------------------------      
-                seed_g = torch.Generator(device=self.device)
-                seed_g.manual_seed(seed + r)
+                #----------------------------------------------Step 2.1: clip-level init------------------------------------------------------ 
 
-                lat_target_frames = (infer_frames + 3 + self.motion_frames
-                                    ) // 4 - lat_motion_frames
-                target_shape = [lat_target_frames, HEIGHT // 8, WIDTH // 8]
-                frame_seq_length = HEIGHT // 8 * WIDTH // 8 // 2 // 2
-                clip_noise = [
-                    torch.randn(
-                        16,
-                        target_shape[0],
-                        target_shape[1],
-                        target_shape[2],
-                        dtype=self.param_dtype,
-                        device=self.device,
-                        generator=seed_g)
-                ]
-                clip_output = torch.zeros_like(clip_noise[0]) #[16,f,h,w]
-                max_seq_len = np.prod(target_shape) // 4
-                if self.kv_cache1 is None:
-                    if offload_model or self.init_on_cpu:
-                        self.noise_model.to(self.device)
-                        self.vae.model.cpu()
-                        self.text_encoder.model.cpu()
-                        self.audio_encoder.model.cpu()
-                        torch.cuda.empty_cache()
-                    self.kv_cache1 = {}
-                    
-                    if not self.offload_kv_cache:
-                        self.shared_cond_cache = []
-                        cond_device = f"cuda:{0}" if self.single_gpu else f"cuda:{0}"
-                        for _ in range(self.noise_model.num_layers):
-                            self.shared_cond_cache.append({
-                                "cond_k": torch.zeros([1, 2800, 40, 128], dtype=self.param_dtype, device=cond_device),
-                                "cond_v": torch.zeros([1, 2800, 40, 128], dtype=self.param_dtype, device=cond_device),
-                                "cond_end": torch.tensor([0], dtype=torch.long, device=cond_device)
-                            })
-                    else:
-                        self.shared_cond_cache = None
-                    
-                    for gpu_id in range(4):
-                        self._initialize_kv_cache(
+                if r==0 or in_dit_device:
+                    seed_g = torch.Generator(device=self.device)
+                    seed_g.manual_seed(seed + r)
+
+                    lat_target_frames = (infer_frames + 3 + self.motion_frames
+                                        ) // 4 - lat_motion_frames
+                    target_shape = [lat_target_frames, HEIGHT // 8, WIDTH // 8]
+                    frame_seq_length = HEIGHT // 8 * WIDTH // 8 // 2 // 2
+                    clip_noise = [
+                        torch.randn(
+                            16,
+                            target_shape[0],
+                            target_shape[1],
+                            target_shape[2],
+                            dtype=self.param_dtype,
+                            device=self.device,
+                            generator=seed_g)
+                    ]
+                    clip_output = torch.zeros_like(clip_noise[0]) #[16,f,h,w]
+                    max_seq_len = np.prod(target_shape) // 4
+                    if self.kv_cache1 is None:
+                        local_rank = torch.distributed.get_rank()
+                        if local_rank < num_gpus_dit:
+                            self._initialize_kv_cache(
+                                    batch_size=1,
+                                    dtype=self.param_dtype,
+                                    device=f"cuda:{local_rank}",
+                                    kv_cache_size=max_seq_len
+                                )
+
+                        self._initialize_crossattn_cache(
                             batch_size=1,
                             dtype=self.param_dtype,
-                            device=f"cuda:{gpu_id+1}",
-                            gpu_id=gpu_id+1,
-                            kv_cache_size=max_seq_len
+                            device=self.device
                         )
-
-                    self._initialize_crossattn_cache(
-                        batch_size=1,
-                        dtype=self.param_dtype,
-                        device=self.device
-                    )
 
 
                 #----------------------------------------------Step 2.2: prepare clip-level cond---------------------------------
-                clip_latents = deepcopy(clip_noise)
-                with torch.no_grad():
-                    left_idx = r * infer_frames
-                    right_idx = r * infer_frames + infer_frames
-                    cond_latents = COND[r] if pose_video else COND[0] * 0
-                    cond_latents = cond_latents.to(
-                        dtype=self.param_dtype, device=self.device)
-                    audio_input = audio_emb[..., left_idx:right_idx]
-                input_motion_latents = motion_latents.clone()
+                if r==0 or in_dit_device:
+                    clip_latents = deepcopy(clip_noise)
+                    with torch.no_grad():
+                        left_idx = r * infer_frames
+                        right_idx = r * infer_frames + infer_frames
+                        cond_latents = COND[r] if pose_video else COND[0] * 0
+                        cond_latents = cond_latents.to(
+                            dtype=self.param_dtype, device=self.device)
+                        audio_input = audio_emb[..., left_idx:right_idx]
+                    input_motion_latents = motion_latents.clone()
 
-                if offload_model or self.init_on_cpu:
-                    self.noise_model.to(self.device)
-                    self.vae.model.cpu()
-                    torch.cuda.empty_cache()
+                    if offload_model or self.init_on_cpu:
+                        self.noise_model.to(self.device)
+                        torch.cuda.empty_cache()
 
                 #-----------------------------------------------Temporal denoising loop in single clip---------------------------------
                 # 2.2.0 prefill cond caching
-                if r==0 or r==1:
-                    for gpu_id in range(4):
-                        self._move_kv_cache_to_working_gpu(gpu_id+1) # move to gpu0
-
-                        block_index = 0
-                        block_latents = clip_latents[0][:, block_index *
-                                        self.num_frames_per_block:(block_index + 1) * self.num_frames_per_block] #[16,f,h,w]
-                        left_idx = block_index * (self.num_frames_per_block * 4)
-                        right_idx = (block_index+1) * (self.num_frames_per_block * 4)
-                        block_arg_c = {
-                            'context': context[0:1], #list(1) torch.Size([19, 4096])
-                            'seq_len': None,
-                            'cond_states': cond_latents[:,:,block_index * 
-                                            self.num_frames_per_block:(block_index + 1) * self.num_frames_per_block],
-                            "motion_latents": input_motion_latents,
-                            'ref_latents': ref_latents,
-                            "audio_input": audio_input[..., left_idx:right_idx],
-                            "motion_frames": [self.motion_frames, lat_motion_frames],
-                            "drop_motion_frames": drop_first_motion and r == 0,
-                            "sink_flag": True,
-                        }
-                        timestep = torch.ones(
-                            [1, self.num_frames_per_block], device=self.device, dtype=self.param_dtype) * 0
-                        self.noise_model( #update clean kv cache
-                            [block_latents], t=timestep*0, **block_arg_c, 
-                            kv_cache=self.kv_cache1[str(gpu_id+1)], crossattn_cache=self.crossattn_cache,
-                            current_start=block_index * self.num_frames_per_block * frame_seq_length,
-                            current_end=(block_index + 1) * self.num_frames_per_block * frame_seq_length)
+                if (r==0 or r==1) and (dist.get_rank() != num_gpus_dit-1+int(enable_vae_parallel)): #考虑要不要r==1的时候替换一下ref cond，如果要的话clip r=0的时候还不能并行，要让每卡都有clean的latent0
+                    if r==1:
+                        ref_latents = torch.empty_like(ref_latents).type_as(clip_latents[0])
+                        dist.broadcast(ref_latents, src=num_gpus_dit-1+int(enable_vae_parallel))
+                    block_index = 0
+                    block_latents = clip_latents[0][:, block_index *
+                                    self.num_frames_per_block:(block_index + 1) * self.num_frames_per_block] #[16,f,h,w]
+                    left_idx = block_index * (self.num_frames_per_block * 4)
+                    right_idx = (block_index+1) * (self.num_frames_per_block * 4)
+                    block_arg_c = {
+                        'context': context[0:1], #list(1) torch.Size([19, 4096])
+                        'seq_len': None,
+                        'cond_states': cond_latents[:,:,block_index * 
+                                        self.num_frames_per_block:(block_index + 1) * self.num_frames_per_block],
+                        "motion_latents": input_motion_latents,
+                        'ref_latents': ref_latents,
+                        "audio_input": audio_input[..., left_idx:right_idx],
+                        "motion_frames": [self.motion_frames, lat_motion_frames],
+                        "drop_motion_frames": drop_first_motion and r == 0,
+                        "sink_flag": True,
+                    }
+                    timestep = torch.ones(
+                        [1, self.num_frames_per_block], device=self.device, dtype=self.param_dtype) * 0
+                    self.noise_model( #update clean kv cache
+                        [block_latents], t=timestep*0, **block_arg_c, 
+                        kv_cache=self.kv_cache1, crossattn_cache=self.crossattn_cache,
+                        current_start=block_index * self.num_frames_per_block * frame_seq_length,
+                        current_end=(block_index + 1) * self.num_frames_per_block * frame_seq_length)
                         
-                        self._move_kv_cache_to_working_gpu(gpu_id+1, gpu_id+1) # move to gpu0
 
 
                 num_blocks = target_shape[0] // self.num_frames_per_block
@@ -1078,35 +1031,43 @@ class WanS2V:
 
                     block_latents = clip_latents[0][:, block_index *
                                 self.num_frames_per_block:(block_index + 1) * self.num_frames_per_block] #[16,f,h,w]
-                    left_idx = block_index * (self.num_frames_per_block * 4)
-                    right_idx = (block_index+1) * (self.num_frames_per_block * 4)
-                    block_arg_c = {
-                        'context': context[0:1], #list(1) torch.Size([19, 4096])
-                        'seq_len': None,
-                        'cond_states': cond_latents[:,:,block_index * 
-                                        self.num_frames_per_block:(block_index + 1) * self.num_frames_per_block],
-                        "motion_latents": input_motion_latents,
-                        'ref_latents': ref_latents,
-                        "audio_input": audio_input[..., left_idx:right_idx],
-                        "motion_frames": [self.motion_frames, lat_motion_frames],
-                        "drop_motion_frames": drop_first_motion and r == 0,
-                    }
-                    
+                    if r==0 or in_dit_device:
+                        left_idx = block_index * (self.num_frames_per_block * 4)
+                        right_idx = (block_index+1) * (self.num_frames_per_block * 4)
+                        block_arg_c = {
+                            'context': context[0:1], #list(1) torch.Size([19, 4096])
+                            'seq_len': None,
+                            'cond_states': cond_latents[:,:,block_index * 
+                                            self.num_frames_per_block:(block_index + 1) * self.num_frames_per_block],
+                            "motion_latents": input_motion_latents,
+                            'ref_latents': ref_latents,
+                            "audio_input": audio_input[..., left_idx:right_idx],
+                            "motion_frames": [self.motion_frames, lat_motion_frames],
+                            "drop_motion_frames": drop_first_motion and r == 0,
+                        }
+
                     for i, t in enumerate(tqdm(timesteps)):
-                        latent_model_input = block_latents #[16,num_frames_per_block,h,w]
+                        if i != dist.get_rank():
+                            continue
+                        if self.src_gpu is None:
+                            latent_model_input = block_latents #[16,num_frames_per_block,h,w]
+                        else:  
+                            latent_model_input = torch.empty_like(block_latents)  # 创建空tensor接收
+                            dist.recv(latent_model_input, self.src_gpu)
+
                         timestep = [t] * self.num_frames_per_block
                         timestep = torch.tensor(timestep).to(self.device).unsqueeze(0)
+                        
 
-                        self._move_kv_cache_to_working_gpu(i+1)# i+1 gpu -> 0
                         noise_pred_cond = self.noise_model(
                             [latent_model_input], t=timestep, **block_arg_c, 
-                            kv_cache=self.kv_cache1[str(i+1)], crossattn_cache=self.crossattn_cache,
+                            kv_cache=self.kv_cache1, crossattn_cache=self.crossattn_cache,
                             current_start=block_index * self.num_frames_per_block * frame_seq_length + r * num_blocks * self.num_frames_per_block * frame_seq_length,
                             current_end=(block_index + 1) * self.num_frames_per_block * frame_seq_length + r * num_blocks *self.num_frames_per_block * frame_seq_length,
                             mask=mask)
 
                         noise_pred = [torch.cat(noise_pred_cond, dim=0)]
-                        self._move_kv_cache_to_working_gpu(i+1,i+1)# i+1 gpu -> 0
+
                         temp_x0 = sample_scheduler.step(
                             noise_pred[0].unsqueeze(0),# [16,f,h,w]
                             t,
@@ -1114,106 +1075,82 @@ class WanS2V:
                             return_dict=False,
                             generator=seed_g)[0]
                         block_latents = temp_x0.squeeze(0) #[16,num_frames_per_block,h,w]
-                    
-                    clip_output[:, block_index * self.num_frames_per_block:(
-                        block_index + 1) * self.num_frames_per_block] = block_latents #[16,num_frames_per_block,h,w]
+                        if self.tgt_gpu is None:
+                            pass
+                        else:
+                            dist.send(block_latents.contiguous(), self.tgt_gpu)
+ 
+                    if enable_vae_parallel and dist.get_rank() == num_gpus_dit-1+int(enable_vae_parallel):
+                            vae_wait_start = time.time()
+                            block_latents = torch.empty_like(block_latents)
+                            dist.recv(block_latents, self.src_gpu)
+                            torch.cuda.synchronize()
+                            if time.time() - vae_wait_start < 0.01:
+                                print(f"WARNING: VAE serves as a bottleneck!")
 
+                    #----------------------------------------------Step 2.3: block-level postprocess for vae---------------------------------
+                    if enable_vae_parallel and dist.get_rank() == num_gpus_dit-1+int(enable_vae_parallel):
+                        if offload_model:
+                            print(f"offloading model to cpu")
+                            self.noise_model.cpu()
+                            torch.cuda.synchronize()
+                            torch.cuda.empty_cache()
+                        if r == 0 and active_nr != 1:
+                            if block_index == 0: #cache new ref
+                                ref_latents = block_latents.unsqueeze(0)[:,:,0:1] # 更新attention sink anchor到generated image，broadcast到所有rank
+                            elif block_index == num_blocks-1: #broadcast ref to all ranks
+                                dist.broadcast(ref_latents.contiguous(), src=num_gpus_dit-1+int(enable_vae_parallel))
+                            else:
+                                pass
 
-                #----------------------------------------------Step 2.3: clip-level postprocess---------------------------------
-                if r == 0:
-                    if offload_model:
-                        print(f"offloading model to cpu")
-                        self.noise_model.cpu()
-                        self.vae.model.to(self.device)
-                        torch.cuda.synchronize()
-                        torch.cuda.empty_cache()
-                    ref_latents = clip_output.unsqueeze(0)[:, :, 0:1]
-                    decode_latents = torch.cat(
-                        [motion_latents, clip_output.unsqueeze(0)], dim=2
-                    )
-                    image = torch.stack(self.vae.decode(decode_latents))
-                    image = image[:, :, -(infer_frames):]
-                    image = image[:, :, 3:]
-
-                    overlap_frames_num = min(self.motion_frames, image.shape[2])
-                    videos_last_frames = torch.cat(
-                        [
-                            videos_last_frames[:, :, overlap_frames_num:],
-                            image[:, :, -overlap_frames_num:],
+                        # decode to rgb
+                        if not (drop_first_motion and r == 0):
+                            decode_latents = torch.cat([motion_latents, block_latents.unsqueeze(0)], dim=2)
+                        else:
+                            decode_latents = torch.cat([ref_latents, block_latents.unsqueeze(0)], dim=2)
+                        image = torch.stack(self.vae.decode(decode_latents))
+                        image = image[:, :, -(infer_frames)//num_blocks:] # 3
+                        
+                        if r == 0 and block_index == 0:
+                            image = image[:, :, 3:]#第一个clip第一个block保留0帧，后面3
+                        
+                        overlap_frames_num = min(self.motion_frames, image.shape[2]) # 12 
+                        #todo:现在一次生成帧数必须大于motion_frames，所以需要长帧数训练，或者训练时候随机drop掉motion_frame的前73-48帧
+                        videos_last_frames = torch.cat([
+                            videos_last_frames[:, :, overlap_frames_num:], #61->16
+                            image[:, :, -overlap_frames_num:] #12->3
                         ],
-                        dim=2,
-                    )
-                    videos_last_frames = videos_last_frames.to(
-                        dtype=motion_latents.dtype, device=motion_latents.device
-                    )
-                    motion_latents = torch.stack(
-                        self.vae.encode(videos_last_frames)
-                    ).type_as(clip_latents[0])
-                    out.append(image.cpu())
-                    if offload_model:
-                        self.vae.model.cpu()
-                        self.noise_model.to(self.device)
-                        torch.cuda.synchronize()
-                        torch.cuda.empty_cache()
-                else:
-                    clip_outputs.append(clip_output.detach().cpu())
+                                                    dim=2)
+                        videos_last_frames = videos_last_frames[:,:,-9:]
+                        # videos_last_frames = image[:, :, -overlap_frames_num:]
+                        videos_last_frames = videos_last_frames.to(
+                            dtype=motion_latents.dtype, device=motion_latents.device)
+                        # motion_latents = block_latents.unsqueeze(0)[:,:,-4:]
+                        motion_latents = torch.stack(
+                            self.vae.encode(videos_last_frames)).type_as(clip_latents[0])
+                        # if (drop_first_motion and r == 0):
+                        #     motion_latents[:,:,:-overlap_frames_num//4] = 0
+                            
+                        out.append(image.cpu())
 
-        #-------------------------------------- Step 3: full-video postprocess (deferred VAE decode for r>=1)--------------------------------------
-        print(f"complete full-sequence generation")
-        if clip_outputs:
+        #-------------------------------------- Step 3: full-video postprocess--------------------------------------
+        if dist.is_initialized():
+                dist.barrier()
+        if dist.get_rank() == num_gpus_dit-1+int(enable_vae_parallel):
+            videos = torch.cat(out, dim=2)
+            del clip_noise, clip_latents, clip_output,block_latents
+            self._sampler_timesteps = None
+            self._sampler_sigmas = None
+            # del sample_scheduler
             if offload_model:
-                print(
-                    f"offloading DIT to cpu, loading VAE to cuda for final decode of remaining clips"
-                )
-                self.noise_model.cpu()
-                self.vae.model.to(self.device)
+                gc.collect()
                 torch.cuda.synchronize()
-                torch.cuda.empty_cache()
+            
 
-            motion_latents_pp = motion_latents
-            for clip_output_cpu in clip_outputs:
-                clip_output = clip_output_cpu.to(
-                    device=self.vae.device, dtype=self.vae.dtype
-                )
-                decode_latents = torch.cat(
-                    [motion_latents_pp, clip_output.unsqueeze(0)], dim=2
-                )
-
-                image = torch.stack(self.vae.decode(decode_latents))
-                image = image[:, :, -(infer_frames):]
-
-                overlap_frames_num = min(self.motion_frames, image.shape[2])
-                videos_last_frames = torch.cat(
-                    [
-                        videos_last_frames[:, :, overlap_frames_num:],
-                        image[:, :, -overlap_frames_num:],
-                    ],
-                    dim=2,
-                )
-                videos_last_frames = videos_last_frames.to(
-                    dtype=motion_latents_pp.dtype, device=motion_latents_pp.device
-                )
-                motion_latents_pp = torch.stack(
-                    self.vae.encode(videos_last_frames)
-                ).type_as(clip_output)
-                out.append(image.cpu())
-
-        videos = torch.cat(out, dim=2)
-        del clip_noise, clip_latents, clip_output, block_latents
-        self._sampler_timesteps = None
-        self._sampler_sigmas = None
-        self.kv_cache1 = None
-        self.shared_cond_cache = None
-        self.crossattn_cache = None
-        # del sample_scheduler
-        if offload_model:
-            self.vae.model.cpu()
-            self.noise_model.to(self.device)
-            gc.collect()
-            torch.cuda.synchronize()
-            torch.cuda.empty_cache()
-
-        return videos[0] if self.rank == 0 else None, dataset_info
+            return videos[0], dataset_info
+        else:
+            return None,dataset_info
+    
 
     def tts(self, tts_prompt_audio, tts_prompt_text, tts_text):
         if not hasattr(self, 'cosyvoice'):

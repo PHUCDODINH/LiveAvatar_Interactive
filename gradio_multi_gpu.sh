@@ -6,7 +6,7 @@ export TORCH_NCCL_BLOCKING_WAIT=1
 export TORCH_NCCL_ASYNC_ERROR_HANDLING=0
 export TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC=86400
 
-CUDA_VISIBLE_DEVICES=0,1,4,5,6
+CUDA_VISIBLE_DEVICES=0,1,2,3,4
 export NCCL_DEBUG=WARN
 export NCCL_DEBUG_SUBSYS=OFF
 
@@ -14,7 +14,7 @@ echo "=========================================="
 echo "Starting Gradio Web UI in Multi-GPU mode"
 echo "=========================================="
 
-CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES /primus_xpfs_workspace_T04/huangshijie/miniconda3/envs/wan_s2v/bin/torchrun \
+CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES torchrun \
     --nproc_per_node=5 \
     --master_port=29502 \
     minimal_inference/gradio_app.py \
@@ -27,7 +27,7 @@ CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES /primus_xpfs_workspace_T04/huangshiji
     --convert_model_dtype \
     --infer_frames 48 \
     --load_lora \
-    --lora_path_dmd "/primus_xpfs_workspace_T04/huangyubo/LongLive/1027_s2v_selfforcing_1_13_2/ckptcopy/step_2500_generator_lora.pt" \
+    --lora_path_dmd "Quark-Vision/Live-Avatar" \
     --sample_steps 4 \
     --sample_guide_scale 0 \
     --num_clip 100 \

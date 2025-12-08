@@ -4,6 +4,7 @@ from safetensors import safe_open
 from contextlib import contextmanager
 import hashlib
 from liveavatar.utils.args_config import args
+from huggingface_hub import hf_hub_download
 
 @contextmanager
 def init_weights_on_device(device = torch.device("meta"), include_buffers :bool = False):
@@ -65,17 +66,29 @@ def load_state_dict_from_folder(file_path, torch_dtype=None):
 
 
 def load_state_dict(file_path, torch_dtype=None):
-    # if not file_path.startswith('/tmp'):
-    #     if int(os.getenv("LOCAL_RANK", 0)) == 0:
-    #         os.makedirs(f'/tmp/{os.path.basename(args.exp_path)}/ckpt', exist_ok=True)
-    #         subprocess.run([f'rsync -avh --progress {file_path} /tmp/{os.path.basename(args.exp_path)}/ckpt'], shell=True, stdin=subprocess.PIPE)
-    #     torch.distributed.barrier()
-    #     file_path = f'/tmp/{os.path.basename(args.exp_path)}/ckpt/{os.path.basename(file_path)}'
-    
-    if file_path.endswith(".safetensors"):
-        return load_state_dict_from_safetensors(file_path, torch_dtype=torch_dtype)
+    if "/" in file_path and not file_path.startswith("/") and not file_path.startswith("."):
+        if os.path.exists(file_path):
+            actual_path = file_path
+        else:
+            try:
+                print(f"Downloading from HF Hub: {file_path}")
+                actual_path = hf_hub_download(
+                    repo_id=file_path,
+                    filename="liveavatar.safetensors",
+                    local_files_only=False,
+                    cache_dir="ckpt/LiveAvatar"
+                )
+                return load_state_dict_from_safetensors(actual_path, torch_dtype=torch_dtype)
+            except Exception as e:
+                print(f"Failed to download from HF Hub: {e}, treating as local path")
+                actual_path = file_path
     else:
-        return load_state_dict_from_bin(file_path, torch_dtype=torch_dtype)
+        actual_path = file_path
+    
+    if actual_path.endswith(".safetensors"):
+        return load_state_dict_from_safetensors(actual_path, torch_dtype=torch_dtype)
+    else:
+        return load_state_dict_from_bin(actual_path, torch_dtype=torch_dtype)
 
 
 def load_state_dict_from_safetensors(file_path, torch_dtype=None):

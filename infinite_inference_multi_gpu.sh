@@ -1,7 +1,7 @@
-CUDA_VISIBLE_DEVICES=0,1,4,5,6
+CUDA_VISIBLE_DEVICES=0,1,2,3,4
 export NCCL_DEBUG=WARN
 export NCCL_DEBUG_SUBSYS=OFF
-CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES /primus_xpfs_workspace_T04/huangshijie/miniconda3/envs/wan_s2v/bin/torchrun --nproc_per_node=5 --master_port=29102  minimal_inference/s2v_streaming_interact.py \
+CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES torchrun --nproc_per_node=5 --master_port=29102  minimal_inference/s2v_streaming_interact.py \
      --ulysses_size 1 \
      --task s2v-14B \
      --size "720*400" \
@@ -14,10 +14,10 @@ CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES /primus_xpfs_workspace_T04/huangshiji
      --audio "examples/dwarven_blacksmith.wav" \
      --infer_frames 48 \
      --load_lora \
-     --lora_path_dmd "/primus_xpfs_workspace_T04/huangyubo/LongLive/1027_s2v_selfforcing_1_13_2/ckptcopy/step_2500_generator_lora.pt" \
+     --lora_path_dmd "Quark-Vision/Live-Avatar" \
      --sample_steps 4 \
      --sample_guide_scale 0 \
-     --num_clip 100 \
+     --num_clip 10000 \
      --num_gpus_dit 4 \
      --sample_solver euler \
      --enable_vae_parallel \

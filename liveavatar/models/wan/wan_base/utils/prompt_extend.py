@@ -501,7 +501,7 @@ if __name__ == "__main__":
     ds_model_name = "qwen-vl-max"
     # qwen_model_name = "./models/Qwen2.5-VL-3B-Instruct/" #VRAM: 9686MiB
     qwen_model_name = "./models/Qwen2.5-VL-7B-Instruct-AWQ/"  # VRAM: 8492
-    image = "./examples/i2v_input.JPG"
+    image = "./examples/boy.jpg"
 
     # test dashscope api why image_path is local directory; skip
     dashscope_prompt_expander = DashScopePromptExpander(

@@ -318,7 +318,7 @@ def initialize_pipeline(args, training_settings):
         assert args.num_gpus_dit == 4, "Only 4 GPUs are supported for distributed inference."
         assert args.enable_vae_parallel is True, "VAE parallel is required for distributed inference."
         args.single_gpu = False
-        from liveavatar.models.wan.causal_s2v_pipeline_infinite import WanS2V
+        from liveavatar.models.wan.causal_s2v_pipeline_tpp import WanS2V
         logging.info("Using TPP distributed inference.")
     else:
         assert not (args.t5_fsdp or args.dit_fsdp), \
@@ -328,7 +328,7 @@ def initialize_pipeline(args, training_settings):
         args.enable_vae_parallel = False
         args.num_gpus_dit = 1
         args.single_gpu = True
-        from liveavatar.models.wan.causal_s2v_pipeline_rolling import WanS2V
+        from liveavatar.models.wan.causal_s2v_pipeline import WanS2V
         logging.info(f"Using single GPU inference with offload mode: {args.offload_model}")
     
     if args.ulysses_size > 1:
@@ -498,7 +498,10 @@ def _run_inference_computation(prompt, image_path, audio_path, num_clip,
             save_file = f"{formatted_time}_{sample_steps}step_{formatted_prompt}"
             
             if global_args.lora_path_dmd is not None:
-                save_file = save_file + "_" + global_args.lora_path_dmd.split("/")[-3] + "_" + global_args.lora_path_dmd.split("/")[-1].split(".")[0]
+                # Only add lora suffix for .pt files (local paths with sufficient depth)
+                path_parts = global_args.lora_path_dmd.split("/")
+                if global_args.lora_path_dmd.endswith(".pt") and len(path_parts) >= 3:
+                    save_file = save_file + "_" + path_parts[-3] + "_" + path_parts[-1].split(".")[0]
             
             save_dir = global_args.save_dir
             os.makedirs(save_dir, exist_ok=True)

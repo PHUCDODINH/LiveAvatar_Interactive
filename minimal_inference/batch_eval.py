@@ -19,7 +19,7 @@ from PIL import Image
 import yaml
 
 # import liveavatar.models.wan.wan_2_2 as wan
-from liveavatar.models.wan.causal_s2v_pipeline_infinite import WanS2V
+from liveavatar.models.wan.causal_s2v_pipeline_tpp import WanS2V
 from liveavatar.models.wan.wan_2_2.configs import MAX_AREA_CONFIGS, SIZE_CONFIGS, SUPPORTED_SIZES, WAN_CONFIGS
 from liveavatar.models.wan.wan_2_2.distributed.util import init_distributed_group
 from liveavatar.models.wan.wan_2_2.utils.prompt_extend import DashScopePromptExpander, QwenPromptExpander
@@ -454,11 +454,17 @@ def generate_single_sample(wan_s2v, args, cfg, sample_idx, sample_name, sample_d
         save_file = f"sample_{sample_idx:04d}_{formatted_time}_{args.sample_steps}step_{formatted_prompt}"
         
         if args.lora_path_dmd is not None:
-            save_file = save_file + "_" + args.lora_path_dmd.split("/")[-3] + "_" + args.lora_path_dmd.split("/")[-1].split(".")[0]
+            # Only add lora suffix for .pt files (local paths with sufficient depth)
+            path_parts = args.lora_path_dmd.split("/")
+            if args.lora_path_dmd.endswith(".pt") and len(path_parts) >= 3:
+                lora_suffix = path_parts[-3] + "_" + path_parts[-1].split(".")[0]
+                save_file = save_file + "_" + lora_suffix
         
         if args.save_dir is None:
-            if args.lora_path_dmd is not None:
-                args.save_dir = "./output/batch_eval/" + args.lora_path_dmd.split("/")[-3] + "_" + args.lora_path_dmd.split("/")[-1].split(".")[0] + "/"
+            if args.lora_path_dmd is not None and args.lora_path_dmd.endswith(".pt") and len(args.lora_path_dmd.split("/")) >= 3:
+                path_parts = args.lora_path_dmd.split("/")
+                lora_suffix = path_parts[-3] + "_" + path_parts[-1].split(".")[0]
+                args.save_dir = "./output/batch_eval/" + lora_suffix + "/"
             else:
                 args.save_dir = "./output/batch_eval/"
         
@@ -526,7 +532,7 @@ def generate(args, training_settings):
         assert args.num_gpus_dit == 4, "Only 4 GPUs are supported for distributed inference."
         assert args.enable_vae_parallel is True, "VAE parallel is required for distributed inference."
         args.single_gpu = False
-        from liveavatar.models.wan.causal_s2v_pipeline_infinite import WanS2V
+        from liveavatar.models.wan.causal_s2v_pipeline_tpp import WanS2V
         print(f"Using TPP distributed inference.")
     else:
         assert not (
@@ -538,7 +544,7 @@ def generate(args, training_settings):
         args.enable_vae_parallel = False
         args.num_gpus_dit = 1
         args.single_gpu = True
-        from liveavatar.models.wan.causal_s2v_pipeline_rolling import WanS2V
+        from liveavatar.models.wan.causal_s2v_pipeline import WanS2V
         print(f"Using single GPU inference with offload mode: {args.offload_model}")
 
     if args.ulysses_size > 1:

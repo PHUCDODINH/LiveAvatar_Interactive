@@ -6,6 +6,7 @@ diffusers>=0.31.0
 transformers>=4.49.0,<=4.51.3
 tokenizers>=0.20.3
 accelerate>=1.1.1
+peft==0.17.1
 tqdm
 imageio[ffmpeg]
 easydict
@@ -32,9 +33,9 @@ librosa
 decord
 modelscope
 GitPython
-peft
+huggingface_hub
 orjson
-tensorborad
+tensorboard
 deepspeed
 supervision
 sam2

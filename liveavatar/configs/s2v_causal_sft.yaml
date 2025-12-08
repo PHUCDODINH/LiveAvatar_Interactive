@@ -23,9 +23,7 @@ strategy: 'deepspeed' # deepspeed fsdp # TODO: fsdp 在sp_size>1时会卡住
 
 # 数据路径
 dataset_path: [
-  # "/primus_xpfs_workspace_T04/huangyubo/datasets/King-VD-046"
-  # "/primus_xpfs_workspace_T04/huangyubo/datasets/AVSpeech_total_1/xad"
-  "/primus_xpfs_workspace_T04/huangyubo/datasets/AVSpeech_part"
+
 ]
 dataset_weights: [0.5, 50]
 val_list: [0, 10, 100, 1000, 10000, 20000, 30000, 40000, 50000, 100000]
@@ -41,7 +39,7 @@ dataset:
   skip_frms_num: 3 # 似乎不起作用
   audio: True
   enable_audio_augment: True
-  caption_mode: tarsier # [qwen-vl, tarsier]这个只是 dataset 里 meta 里读哪一个处理好的版本，跟 online training process 没关系
+  caption_mode: tarsier # [qwen-vl, tarsier]
 
 # 预训练模型路径
 ckpt_dir: ./Wan2.2-S2V-14B/ 

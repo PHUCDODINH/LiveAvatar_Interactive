@@ -29,11 +29,11 @@ EXAMPLE_PROMPT = {
         "prompt":
             "Summer beach vacation style, a white cat wearing sunglasses sits on a surfboard. The fluffy-furred feline gazes directly at the camera with a relaxed expression. Blurred beach scenery forms the background featuring crystal-clear waters, distant green hills, and a blue sky dotted with white clouds. The cat assumes a naturally relaxed posture, as if savoring the sea breeze and warm sunlight. A close-up shot highlights the feline's intricate details and the refreshing atmosphere of the seaside.",
         "image":
-            "examples/i2v_input.JPG",
+            "examples/boy.jpg",
         "audio":
-            "examples/talk.wav",
+            "examples/boy.wav",
         "tts_prompt_audio":
-            "examples/zero_shot_prompt.wav",
+            "examples/fashion_blogger.wav",
         "tts_prompt_text":
             "希望你以后能够做的比我还好呦。",
         "tts_text":
@@ -363,7 +363,7 @@ def generate(args, training_settings):
         assert args.num_gpus_dit == 4, "Only 4 GPUs are supported for distributed inference."
         assert args.enable_vae_parallel is True, "VAE parallel is required for distributed inference."
         args.single_gpu = False
-        from liveavatar.models.wan.causal_s2v_pipeline_infinite import WanS2V
+        from liveavatar.models.wan.causal_s2v_pipeline_tpp import WanS2V
         print(f"Using TPP distributed inference.")
     else:
         assert not (
@@ -375,7 +375,7 @@ def generate(args, training_settings):
         args.enable_vae_parallel = False
         args.num_gpus_dit = 1
         args.single_gpu = True
-        from liveavatar.models.wan.causal_s2v_pipeline_rolling import WanS2V
+        from liveavatar.models.wan.causal_s2v_pipeline import WanS2V
         print(f"Using single GPU inference with offload mode: {args.offload_model}")
 
     if args.ulysses_size > 1:
@@ -532,10 +532,16 @@ def generate(args, training_settings):
                                                                      "_")[:50]
             suffix = '.mp4'
             # args.save_file = f"{args.task}_{args.size.replace('*','x') if sys.platform=='win32' else args.size}_{args.ulysses_size}_{formatted_prompt}_{formatted_time}" + suffix
-            args.save_file = f"{formatted_time}_{args.sample_steps}step_{formatted_prompt}" 
-            args.save_file = args.save_file + "_" + args.lora_path_dmd.split("/")[-3] + "_" +args.lora_path_dmd.split("/")[-1].split(".")[0]
-            if args.save_dir is None:
-                args.save_dir = "./output/" + args.lora_path_dmd.split("/")[-3] + "_" +args.lora_path_dmd.split("/")[-1].split(".")[0] + "/"
+            args.save_file = f"{formatted_time}_{args.sample_steps}step_{formatted_prompt}"
+            # Only add lora suffix for .pt files (local paths with sufficient depth)
+            path_parts = args.lora_path_dmd.split("/")
+            if args.lora_path_dmd.endswith(".pt") and len(path_parts) >= 3:
+                lora_suffix = path_parts[-3] + "_" + path_parts[-1].split(".")[0]
+                args.save_file = args.save_file + "_" + lora_suffix
+                if args.save_dir is None:
+                    args.save_dir = "./output/" + lora_suffix + "/"
+            elif args.save_dir is None:
+                args.save_dir = "./output/"
             os.makedirs(args.save_dir, exist_ok=True)
             args.save_file = args.save_dir + args.save_file + suffix
         logging.info(f"Saving generated video to {args.save_file}")
