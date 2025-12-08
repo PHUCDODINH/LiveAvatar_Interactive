@@ -188,6 +188,9 @@ If you find this project useful for your research, please consider citing our pa
       url={https://arxiv.org/abs/2512.04677}, 
 }
 ```
+## ⭐ Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=Alibaba-Quark/LiveAvatar&type=date&legend=top-left)](https://www.star-history.com/#Alibaba-Quark/LiveAvatar&type=date&legend=top-left)
 
 ## 📜 License Agreement
 * The majority of this project is released under the Apache 2.0 license as found in the [LICENSE](LICENSE).
