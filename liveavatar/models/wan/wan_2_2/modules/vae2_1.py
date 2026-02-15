@@ -655,6 +655,8 @@ class Wan2_1_VAE:
             ]
 
     def decode(self, zs):
+        # Ensure model is fully on the correct device
+        self.model = self.model.to(self.device, self.dtype)
         with amp.autocast(dtype=self.dtype):
             return [
                 self.model.decode(u.unsqueeze(0),

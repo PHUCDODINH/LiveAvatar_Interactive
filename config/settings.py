@@ -1,0 +1,45 @@
+"""Configuration management for Interactive Avatar."""
+from pydantic_settings import BaseSettings
+from typing import Optional
+
+
+class Settings(BaseSettings):
+    """Application settings."""
+    
+    # API Keys
+    openai_api_key: str
+    elevenlabs_api_key: str
+    
+    # Server
+    server_host: str = "0.0.0.0"
+    server_port: int = 8000
+    
+    # LiveAvatar
+    liveavatar_ckpt_dir: str = "ckpt/Wan2.2-S2V-14B/"
+    liveavatar_lora_path: str = "Quark-Vision/Live-Avatar"
+    liveavatar_size: str = "512*288"
+    liveavatar_infer_frames: int = 32
+    liveavatar_sample_steps: int = 2
+    enable_fp8: bool = True
+    enable_compile: bool = True
+    
+    # OpenAI
+    openai_model: str = "gpt-3.5-turbo"
+    openai_whisper_model: str = "whisper-1"
+    openai_max_tokens: int = 150
+    
+    # OpenAI TTS
+    openai_tts_model: str = Field(default="tts-1")
+    openai_tts_voice: str = Field(default="alloy")
+    
+    # Avatar
+    default_avatar_image: str = "examples/anchor.jpg"
+    default_avatar_prompt: str = "A scene in which the anchorwoman is interacting with the audience, with a clean interior in the background."
+    
+    class Config:
+        env_file = ".env"
+        case_sensitive = False
+
+
+# Global settings instance
+settings = Settings()

@@ -36,12 +36,10 @@ def cudnn_attention_forward_with_lse(
     q = q.transpose(1, 2)
     k = k.transpose(1, 2)
     v = v.transpose(1, 2)
-    out = torch.ops.aten._scaled_dot_product_cudnn_attention(
+    out = torch.ops.aten._scaled_dot_product_flash_attention(
         q,
         k,
         v,
-        attn_bias=attn_mask,
-        compute_log_sumexp=True,
         dropout_p=dropout_p,
         is_causal=is_causal,
         scale=scale,
@@ -140,22 +138,39 @@ def flash_attention(
             causal=causal,
             deterministic=deterministic).unflatten(0, (b, lq))
     else:
-        assert FLASH_ATTN_2_AVAILABLE
-        x = flash_attn.flash_attn_varlen_func(
-            q=q,
-            k=k,
-            v=v,
-            cu_seqlens_q=torch.cat([q_lens.new_zeros([1]), q_lens]).cumsum(
-                0, dtype=torch.int32).to(q.device, non_blocking=True),
-            cu_seqlens_k=torch.cat([k_lens.new_zeros([1]), k_lens]).cumsum(
-                0, dtype=torch.int32).to(q.device, non_blocking=True),
-            max_seqlen_q=lq,
-            max_seqlen_k=lk,
-            dropout_p=dropout_p,
-            softmax_scale=softmax_scale,
-            causal=causal,
-            window_size=window_size,
-            deterministic=deterministic).unflatten(0, (b, lq))
+        if not FLASH_ATTN_2_AVAILABLE:
+            # Fallback to PyTorch's native attention when flash-attn is not available
+            warnings.warn('Flash attention not available, using PyTorch scaled_dot_product_attention fallback')
+            if k_lens is not None:
+                warnings.warn('Padding mask is disabled when using scaled_dot_product_attention fallback')
+            
+            # Reshape for PyTorch attention: [B*L, N, C] -> [B, N, L, C]
+            q_reshaped = q.unflatten(0, (b, lq)).transpose(1, 2)
+            k_reshaped = k.unflatten(0, (b, lk)).transpose(1, 2)
+            v_reshaped = v.unflatten(0, (b, lk)).transpose(1, 2)
+            
+            x = torch.nn.functional.scaled_dot_product_attention(
+                q_reshaped, k_reshaped, v_reshaped, 
+                attn_mask=None, is_causal=causal, dropout_p=dropout_p)
+            
+            # Reshape back: [B, N, L, C] -> [B, L, N, C]
+            x = x.transpose(1, 2).contiguous()
+        else:
+            x = flash_attn.flash_attn_varlen_func(
+                q=q,
+                k=k,
+                v=v,
+                cu_seqlens_q=torch.cat([q_lens.new_zeros([1]), q_lens]).cumsum(
+                    0, dtype=torch.int32).to(q.device, non_blocking=True),
+                cu_seqlens_k=torch.cat([k_lens.new_zeros([1]), k_lens]).cumsum(
+                    0, dtype=torch.int32).to(q.device, non_blocking=True),
+                max_seqlen_q=lq,
+                max_seqlen_k=lk,
+                dropout_p=dropout_p,
+                softmax_scale=softmax_scale,
+                causal=causal,
+                window_size=window_size,
+                deterministic=deterministic).unflatten(0, (b, lq))
 
     # output
     return x.type(out_dtype)

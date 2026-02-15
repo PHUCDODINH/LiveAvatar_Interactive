@@ -1,0 +1,25 @@
+# Interactive Avatar Demo - Additional Dependencies
+
+# Web Framework
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+websockets==12.0
+python-multipart==0.0.6
+
+# Configuration
+pydantic==2.5.3
+pydantic-settings==2.1.0
+python-dotenv==1.0.0
+pyyaml==6.0.1
+
+# OpenAI Integration (STT + LLM)
+openai==1.10.0
+
+# Audio Processing
+pydub==0.25.1
+soundfile==0.12.1
+librosa==0.10.1
+
+# Utilities
+aiofiles==23.2.1
+python-jose==3.3.0
