@@ -43,11 +43,10 @@ async def startup_event():
     
     logger.info("Starting Interactive Avatar Server...")
     logger.info(f"OpenAI Model: {settings.openai_model}")
-    logger.info(f"ElevenLabs Voice: {settings.elevenlabs_voice_id}")
     logger.info(f"LiveAvatar Config: {settings.liveavatar_size} @ {settings.liveavatar_sample_steps} steps")
     
     # Initialize services
-   = logger.info("Initializing STT service...")
+    logger.info("Initializing STT service...")
     stt_service = STTService()
     
     logger.info("Initializing LLM service...")

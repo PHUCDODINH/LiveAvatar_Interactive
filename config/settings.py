@@ -1,5 +1,6 @@
 """Configuration management for Interactive Avatar."""
 from pydantic_settings import BaseSettings
+from pydantic import Field
 from typing import Optional
 
 
@@ -17,8 +18,8 @@ class Settings(BaseSettings):
     # LiveAvatar
     liveavatar_ckpt_dir: str = "ckpt/Wan2.2-S2V-14B/"
     liveavatar_lora_path: str = "Quark-Vision/Live-Avatar"
-    liveavatar_size: str = "512*288"
-    liveavatar_infer_frames: int = 32
+    liveavatar_size: str = "384*256"
+    liveavatar_infer_frames: int = 8
     liveavatar_sample_steps: int = 2
     enable_fp8: bool = True
     enable_compile: bool = True
