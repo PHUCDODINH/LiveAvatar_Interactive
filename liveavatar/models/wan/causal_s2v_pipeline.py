@@ -781,10 +781,10 @@ class WanS2V:
             audio_emb = torch.cat(audio_embs, dim=0)
 
             # Process SAM2 and generate routing_logits if video path is provided
-            print(f"rank {dist.get_rank()} processing SAM2")
+            rank = dist.get_rank() if dist.is_initialized() else 0
+            print(f"rank {rank} processing SAM2")
             input_video_for_sam2 = input_video_for_sam2 if input_video_for_sam2 is not None else ref_image_path
             routing_logits = None
-            rank = dist.get_rank()
             
             # Broadcast video path to all ranks
             if rank == 0:
@@ -1056,7 +1056,11 @@ class WanS2V:
                     timesteps = self._sampler_timesteps
                     sample_scheduler.timesteps = timesteps
                     sample_scheduler.sigmas = self._sampler_sigmas
-                    sample_scheduler._step_index = dist.get_rank() 
+                    # Handle single-GPU mode (no distributed training)
+                    try:
+                        sample_scheduler._step_index = dist.get_rank() if dist.is_initialized() else 0
+                    except:
+                        sample_scheduler._step_index = 0
                     sample_scheduler._begin_index = 0
 
                     block_latents = clip_latents[0][:, block_index *

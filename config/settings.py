@@ -23,6 +23,8 @@ class Settings(BaseSettings):
     liveavatar_sample_steps: int = 2
     enable_fp8: bool = False
     enable_compile: bool = True
+    default_avatar_prompt: str = "A person speaking naturally"
+    default_avatar_image: str = "examples/man.png"
     
     # OpenAI
     openai_model: str = "gpt-3.5-turbo"
