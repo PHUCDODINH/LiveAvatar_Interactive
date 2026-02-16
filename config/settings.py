@@ -18,8 +18,8 @@ class Settings(BaseSettings):
     # LiveAvatar
     liveavatar_ckpt_dir: str = "ckpt/Wan2.2-S2V-14B/"
     liveavatar_lora_path: str = "Quark-Vision/Live-Avatar"
-    liveavatar_size: str = "384*256"
-    liveavatar_infer_frames: int = 8
+    liveavatar_size: str = "704*384"  # Balanced quality for H100 80GB
+    liveavatar_infer_frames: int = 32  # 0.67s videos (better lip sync)
     liveavatar_sample_steps: int = 2
     enable_fp8: bool = False
     enable_compile: bool = True
