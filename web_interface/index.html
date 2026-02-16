@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive LiveAvatar</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+
+<body>
+    <div class="container">
+        <header>
+            <h1>🎬 Interactive LiveAvatar</h1>
+            <p class="subtitle">Real-time AI Avatar Generation</p>
+            <div id="connectionStatus">
+                <span id="statusDot" class="status-dot"></span>
+                <span id="statusText">Connecting...</span>
+            </div>
+            <div id="sessionId" style="font-size: 0.8em; opacity: 0.7;"></div>
+        </header>
+
+        <div id="loadingOverlay" class="loading-overlay" style="display: none;">
+            <div class="spinner"></div>
+            <p id="loadingText">Processing...</p>
+        </div>
+
+        <div class="video-section">
+            <div id="videoPlaceholder" class="video-placeholder">
+                <p>Avatar video will appear here</p>
+            </div>
+            <video id="avatarVideo" style="display: none; width: 100%; max-width: 640px;" controls autoplay></video>
+        </div>
+
+        <div id="chatContainer" class="chat-container"></div>
+
+        <div class="input-section">
+            <input type="text" id="textInput" placeholder="Type your message..." />
+            <button id="sendButton" class="btn btn-primary">Send</button>
+            <button id="micButton" class="btn btn-secondary">
+                <span class="mic-icon">🎤</span>
+                <span class="mic-text">Hold to Speak</span>
+            </button>
+        </div>
+
+        <button id="settingsToggle" class="settings-toggle">⚙️ Settings</button>
+        <div id="settingsContent" class="settings-content" style="display: none;">
+            <h3>Settings</h3>
+            <p>Settings panel (to be implemented)</p>
+        </div>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+
+</html>

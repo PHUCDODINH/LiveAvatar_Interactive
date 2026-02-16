@@ -215,7 +215,10 @@ grounded_dino_ckpts
 third_party
 
 *.mp4 
-*html 
+# *html  # Commented out - was blocking web_interface/index.html
+
+# Allow web_interface HTML files
+!web_interface/*.html
 
 websites
 

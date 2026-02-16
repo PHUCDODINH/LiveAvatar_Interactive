@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     liveavatar_size: str = "384*256"
     liveavatar_infer_frames: int = 8
     liveavatar_sample_steps: int = 2
-    enable_fp8: bool = True
+    enable_fp8: bool = False
     enable_compile: bool = True
     
     # OpenAI
