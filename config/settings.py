@@ -35,10 +35,6 @@ class Settings(BaseSettings):
     openai_tts_model: str = Field(default="tts-1")
     openai_tts_voice: str = Field(default="alloy")
     
-    # Avatar
-    default_avatar_image: str = "examples/anchor.jpg"
-    default_avatar_prompt: str = "A scene in which the anchorwoman is interacting with the audience, with a clean interior in the background."
-    
     class Config:
         env_file = ".env"
         case_sensitive = False
