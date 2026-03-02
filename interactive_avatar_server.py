@@ -234,17 +234,34 @@ async def process_user_input(session_id: str, user_text: str, websocket: WebSock
         audio_path = await tts_service.synthesize(llm_response)
         logger.info(f"TTS audio generated: {audio_path}")
         
+        # Calculate required video clips based on audio duration
+        import wave
+        import contextlib
+        try:
+            # Pydub/librosa might not be installed, use soundfile if available or fallback
+            import soundfile as sf
+            audio_info = sf.info(audio_path)
+            duration = audio_info.duration
+        except:
+            # Fallback estimation based on character count (1 char ~ 0.08s speaking time)
+            duration = len(llm_response) * 0.08
+            
+        # Each clip is frames/fps seconds long (e.g. 32/48 = 0.67s)
+        clip_duration = settings.liveavatar_infer_frames / 48.0
+        num_clips = max(1, int(duration / clip_duration) + 1)
+        logger.info(f"Audio duration: {duration:.2f}s, requested clips: {num_clips} (at {clip_duration:.2f}s each)")
+        
         # Update status
         await websocket.send_json({
             "type": "status",
             "status": "generating_video",
-            "message": "Generating avatar video..."
+            "message": f"Generating {num_clips} video clips..."
         })
         
         # Generate avatar video
         video_path = await avatar_service.generate_avatar_video(
             audio_path=audio_path,
-            num_clips=1
+            num_clips=num_clips
         )
         logger.info(f"Avatar video generated: {video_path}")
         
