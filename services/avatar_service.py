@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Optional
 import torch
 import tempfile
+import torch.distributed as dist
 
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -51,8 +52,15 @@ class AvatarService:
             os.environ['ENABLE_FP8'] = str(settings.enable_fp8).lower()
             os.environ['CUDNN_BENCHMARK'] = '1'
             
+            # Handle Distributed setup
+            is_dist = dist.is_initialized()
+            world_size = dist.get_world_size() if is_dist else 1
+            rank = dist.get_rank() if is_dist else 0
+            
             # Set CUDA device
-            torch.cuda.set_device(0)
+            device_id = rank % torch.cuda.device_count()
+            torch.cuda.set_device(device_id)
+            logger.info(f"[Rank {rank}/{world_size}] Setting device to cuda:{device_id}")
             
             # Load configuration
             self.config = WAN_CONFIGS["s2v-14B"]
@@ -61,21 +69,21 @@ class AvatarService:
             training_config_path = "liveavatar/configs/s2v_causal_sft.yaml"
             self.training_config = parse_args_for_training_config(training_config_path)
             
-            logger.info("Creating WanS2V pipeline...")
+            logger.info(f"[Rank {rank}] Creating WanS2V pipeline...")
             
             # Create pipeline
             self.pipeline = WanS2V(
                 config=self.config,
                 checkpoint_dir=settings.liveavatar_ckpt_dir,
-                device_id=0,
-                rank=0,
+                device_id=device_id,
+                rank=rank,
                 t5_fsdp=False,
                 dit_fsdp=False,
                 use_sp=False,
                 sp_size=1,
                 t5_cpu=False,
                 convert_model_dtype=True,
-                single_gpu=True,
+                single_gpu=not is_dist,
                 offload_kv_cache=False,
             )
             
@@ -173,7 +181,27 @@ class AvatarService:
     ) -> str:
         """Synchronous video generation."""
         try:
-            # Generate video
+            is_dist = dist.is_initialized()
+            rank = dist.get_rank() if is_dist else 0
+            world_size = dist.get_world_size() if is_dist else 1
+            
+            # In multi-GPU TPP mode, 1 GPU is used for VAE, the rest for DiT
+            num_gpus_dit = max(1, world_size - 1) if is_dist else 1
+            # VAE parallel is enabled if we have dedicated DiT GPUs
+            enable_vae_parallel = is_dist and world_size > 1
+            # The rank that actually saves the video in TPP mode is usually rank 0 or the VAE rank
+            # based on pipeline logic, Rank 0 is safe for returning the path
+            
+            logger.info(f"[Rank {rank}] Participating in video generation... (clips: {num_clips}, gpus_dit: {num_gpus_dit}, vae_parallel: {enable_vae_parallel})")
+            
+            # Broadcast parameters from Rank 0 to workers in distributed mode
+            if is_dist and world_size > 1:
+                if rank == 0:
+                    inputs = ["infer", audio_path, prompt, reference_image, num_clips, seed]
+                    logger.info("Rank 0 broadcasting inference request to workers...")
+                    dist.broadcast_object_list(inputs, src=0)
+            
+            # Generate video (All participating ranks block here until completion)
             video, dataset_info = self.pipeline.generate(
                 input_prompt=prompt,
                 ref_image_path=reference_image,
@@ -197,38 +225,46 @@ class AvatarService:
                 use_dataset=False,
                 dataset_sample_idx=0,
                 drop_motion_noisy=False,
-                num_gpus_dit=1,
-                enable_vae_parallel=False,
+                num_gpus_dit=num_gpus_dit,
+                enable_vae_parallel=enable_vae_parallel,
                 input_video_for_sam2=None,
             )
             
-            logger.info("Video generation completed, saving...")
-            
-            # Create output path
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            output_dir = "output/interactive"
-            os.makedirs(output_dir, exist_ok=True)
-            output_path = os.path.join(output_dir, f"avatar_{timestamp}.mp4")
-            
-            # Save video
-            save_video(
-                tensor=video[None],
-                save_file=output_path,
-                fps=self.config.sample_fps,
-                nrow=1,
-                normalize=True,
-                value_range=(-1, 1)
-            )
-            
-            # Merge with audio
-            merge_video_audio(video_path=output_path, audio_path=audio_path)
-            
-            # Clean up
-            del video
+            # Only rank 0 handles file saving and returning the path
+            if rank == 0:
+                logger.info("Video generation completed, saving on Rank 0...")
+                
+                # Create output path
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                output_dir = "output/interactive"
+                os.makedirs(output_dir, exist_ok=True)
+                output_path = os.path.join(output_dir, f"avatar_{timestamp}.mp4")
+                
+                # Save video
+                save_video(
+                    tensor=video[None],
+                    save_file=output_path,
+                    fps=self.config.sample_fps,
+                    nrow=1,
+                    normalize=True,
+                    value_range=(-1, 1)
+                )
+                
+                # Merge with audio
+                merge_video_audio(video_path=output_path, audio_path=audio_path)
+                
+                logger.info(f"Avatar video saved to: {output_path}")
+                video_ret = output_path
+            else:
+                logger.info(f"[Rank {rank}] Generation logic completed. Returning empty string.")
+                video_ret = ""
+                
+            # Clean up on all ranks
+            if video is not None:
+                del video
             torch.cuda.empty_cache()
             
-            logger.info(f"Avatar video saved to: {output_path}")
-            return output_path
+            return video_ret
             
         except Exception as e:
             logger.error(f"Avatar generation error: {e}")

@@ -11,7 +11,9 @@ from pathlib import Path
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
+import torch.distributed as dist
 
 from services import STTService, LLMService, TTSService, AvatarService
 from config import settings
@@ -35,35 +37,49 @@ avatar_service: Optional[AvatarService] = None
 # Session management
 active_sessions: Dict[str, dict] = {}
 
+# Distributed setup
+global_rank: int = 0
+world_size: int = 1
+
 
 @app.on_event("startup")
 async def startup_event():
     """Initialize services on startup."""
-    global stt_service, llm_service, tts_service, avatar_service
+    global stt_service, llm_service, tts_service, avatar_service, global_rank, world_size
     
-    logger.info("Starting Interactive Avatar Server...")
-    logger.info(f"OpenAI Model: {settings.openai_model}")
-    logger.info(f"LiveAvatar Config: {settings.liveavatar_size} @ {settings.liveavatar_sample_steps} steps")
-    
-    # Initialize services
-    logger.info("Initializing STT service...")
-    stt_service = STTService()
-    
-    logger.info("Initializing LLM service...")
-    llm_service = LLMService()
-    
-    logger.info("Initializing TTS service...")
-    tts_service = TTSService()
-    
-    logger.info("Initializing Avatar service (this may take a while)...")
-    avatar_service = AvatarService()
-    await avatar_service.initialize()
-    
-    logger.info("All services initialized successfully!")
-    
-    # Mount static files for web interface
-    if os.path.exists("web_interface"):
-        app.mount("/static", StaticFiles(directory="web_interface"), name="static")
+    if dist.is_initialized():
+        global_rank = dist.get_rank()
+        world_size = dist.get_world_size()
+        logger.info(f"Distributed mode detected: Rank {global_rank}/{world_size}")
+    else:
+        logger.info("Single-process mode.")
+
+    if global_rank == 0:
+        logger.info("Starting Interactive Avatar Server (Rank 0)...")
+        logger.info(f"OpenAI Model: {settings.openai_model}")
+        logger.info(f"LiveAvatar Config: {settings.liveavatar_size} @ {settings.liveavatar_sample_steps} steps")
+        
+        # Initialize services
+        logger.info("Initializing STT service...")
+        stt_service = STTService()
+        
+        logger.info("Initializing LLM service...")
+        llm_service = LLMService()
+        
+        logger.info("Initializing TTS service...")
+        tts_service = TTSService()
+        
+        logger.info("Initializing Avatar service (this may take a while)...")
+        avatar_service = AvatarService()
+        await avatar_service.initialize()
+        
+        logger.info("All services initialized successfully on Rank 0!")
+        
+        # Mount static files for web interface
+        if os.path.exists("web_interface"):
+            app.mount("/static", StaticFiles(directory="web_interface"), name="static")
+    else:
+        logger.info(f"Rank {global_rank}: Not initializing API services, waiting for worker loop to start.")
 
 
 @app.get("/")
@@ -295,16 +311,73 @@ async def serve_video(filename: str):
     return FileResponse(video_path, media_type="video/mp4")
 
 
-def main():
-    """Run the server."""
-    logger.info(f"Starting server on {settings.server_host}:{settings.server_port}")
-    uvicorn.run(
-        app,
-        host=settings.server_host,
-        port=settings.server_port,
-        log_level="info"
-    )
+def worker_loop():
+    """
+    Worker loop for non-rank-0 processes in distributed mode.
+    They continuously wait for broadcast signals from rank 0 and participate in computation.
+    """
+    global_rank = dist.get_rank()
+    logger.info(f"Rank {global_rank} initializing AvatarService...")
+    
+    # Initialize avatar service for the worker
+    service = AvatarService()
+    # Synchronously initialize since we are not in an asyncio event loop here
+    service._initialize_sync()
+    
+    logger.info(f"Rank {global_rank} entering worker loop, waiting for inference requests...")
+    
+    while True:
+        try:
+            # Wait for broadcast from rank 0
+            # Format: [command, audio_path, prompt, reference_image, num_clips, seed]
+            inputs = [None] * 6
+            dist.broadcast_object_list(inputs, src=0)
+            
+            command = inputs[0]
+            
+            if command == "infer":
+                _, audio_path, prompt, reference_image, num_clips, seed = inputs
+                logger.info(f"[Rank {global_rank}] Received inference request for {num_clips} clips")
+                
+                # Participate in computation synchronously
+                service._generate_sync(
+                    audio_path=audio_path,
+                    prompt=prompt,
+                    reference_image=reference_image,
+                    num_clips=num_clips,
+                    seed=seed
+                )
+                logger.info(f"[Rank {global_rank}] Generation completed")
+                
+            elif command == "idle":
+                logger.debug(f"[Rank {global_rank}] Received idle signal, continuing to wait...")
+                
+        except Exception as e:
+            logger.error(f"[Rank {global_rank}] Error in worker loop: {e}")
+            import traceback
+            traceback.print_exc()
+            # Don't break, keep trying to listen
+            import time
+            time.sleep(1)
 
 
 if __name__ == "__main__":
-    main()
+    # Initialize PyTorch distributed if torchrun is used
+    if "WORLD_SIZE" in os.environ:
+        dist.init_process_group("nccl")
+        rank = dist.get_rank()
+        world_size = dist.get_world_size()
+        logger.info(f"Initialized distributed group: rank {rank}/{world_size}")
+        
+        if rank == 0:
+            # Rank 0 runs the web server
+            logger.info("Rank 0: Starting API server...")
+            uvicorn.run(app, host=settings.server_host, port=settings.server_port)
+        else:
+            # Ranks > 0 run the infinite worker loop
+            worker_loop()
+            
+    else:
+        # Single process mode
+        logger.info("Starting API server in single-process mode...")
+        uvicorn.run(app, host=settings.server_host, port=settings.server_port)
